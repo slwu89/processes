@@ -30,34 +30,54 @@ to_graphviz(epiPN)
 add_parts!(epiPN, :M, 500, m=[fill(1,450); fill(2,50)])
 
 # how many S people?
-length(incident(epiPN, :S, [:m,:sname]))
+# length(incident(epiPN, :I, [:m,:sname]))
 
 # make the set of rewrite rules
-for t in parts(epiPN, :T)
+epiPN_rules = map(parts(epiPN, :T)) do t
+    # get L
+    input_m = epiPN[incident(epiPN, t, :it), [:is,:sname]]
 
+    L = MarkedLabelledPetriNet{Symbol}()
+
+    if length(input_m) > 0
+        add_parts!(L, :S, length(unique(input_m)), sname=unique(input_m))
+        add_parts!(L, :M, length(input_m), m=vcat(incident(L, input_m, :sname)...))
+    end
+
+    # get R
+    output_m = epiPN[incident(epiPN, t, :ot), [:os,:sname]]
+
+    R = MarkedLabelledPetriNet{Symbol}()
+
+    if length(output_m) > 0
+        add_parts!(R, :S, length(unique(output_m)), sname=unique(output_m))
+        add_parts!(R, :M, length(output_m), m=vcat(incident(R, output_m, :sname)...))
+    end
+
+    # get I
+    I, span = only(maximum_common_subobject([L,R], abstract=false))
+
+    retval = (
+        rule = Rule(legs(first(span))[1], legs(first(span))[2]),
+        L = L,
+        R = R,
+        I = I
+    )
+
+    return retval
 end
 
-t=1
+get_matches(epiPN_rules[1].rule, epiPN)
+homomorphisms(epiPN_rules[1].L, epiPN, monic=true)
 
-# get L
-input_m = epiPN[incident(epiPN, t, :it), [:is,:sname]]
 
-L = MarkedLabelledPetriNet{Symbol}()
+# @inline function rate_to_proportion(r::T, t::T) where {T<:Float64}
+#     1-exp(-r*t)
+# end
 
-if length(input_m) > 0
-    add_parts!(L, :S, length(unique(input_m)), sname=unique(input_m))
-    add_parts!(L, :M, length(input_m), m=vcat(incident(L, input_m, :sname)...))
-end
-
-# get R
-output_m = epiPN[incident(epiPN, t, :ot), [:os,:sname]]
-
-R = MarkedLabelledPetriNet{Symbol}()
-
-if length(output_m) > 0
-    add_parts!(R, :S, length(unique(output_m)), sname=unique(output_m))
-    add_parts!(R, :M, length(output_m), m=vcat(incident(R, output_m, :sname)...))
-end
-
-# get I
-l, r = first(maximum_common_subobject([L,R]))
+# δt = 0.1
+# nsteps = 400
+# tmax = nsteps*δt
+# tspan = (0.0,nsteps)
+# t = 0.0:δt:tmax;
+# p = [0.05,10.0,0.25,δt]; # β,c,γ,δt
