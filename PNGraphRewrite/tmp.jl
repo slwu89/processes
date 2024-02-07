@@ -1,5 +1,7 @@
 using Catlab, AlgebraicPetri, AlgebraicRewriting
+using Distributions
 
+# --------------------------------------------------------------------------------
 # we want a PN with a marking
 @present SchMarkedLabelledPetriNet <: SchLabelledPetriNet begin
     M::Ob
@@ -10,8 +12,16 @@ end
 
 to_graphviz(SchMarkedLabelledPetriNet)
 
-# an SIR model with birth and death
-epiPN = @acset MarkedLabelledPetriNet{Symbol} begin
+# a little function to see how many tokens are in each place
+function marking(pn)
+    names = Tuple(pn[:,:sname])
+    vals = length.(incident(pn, parts(pn,:S), :m))
+    return NamedTuple{names}(vals)
+end
+
+# --------------------------------------------------------------------------------
+# an SIR model with demography (birth and death)
+sirpn = @acset MarkedLabelledPetriNet{Symbol} begin
     S=3
     sname=[:S,:I,:R]
     T=6
@@ -24,37 +34,46 @@ epiPN = @acset MarkedLabelledPetriNet{Symbol} begin
     os=[2,2,3,1]
 end
 
-to_graphviz(epiPN)
+to_graphviz(sirpn)
 
 # add a marking
-add_parts!(epiPN, :M, 500, m=[fill(1,450); fill(2,50)])
+add_parts!(sirpn, :M, 100, m=[fill(1,95); fill(2,5)])
 
-# how many S people?
-# length(incident(epiPN, :I, [:m,:sname]))
+# check the marking
+marking(sirpn)
 
+# --------------------------------------------------------------------------------
 # make the set of rewrite rules
-epiPN_rules = map(parts(epiPN, :T)) do t
-    # get L
-    input_m = epiPN[incident(epiPN, t, :it), [:is,:sname]]
 
+# function to make a DPO rule for a transition in a marked PN
+function make_rule(pn::T, t) where {T<:MarkedLabelledPetriNet}
+    input_m = inputs(pn, t)
+    output_m = outputs(pn, t)
+
+    # get L
     L = MarkedLabelledPetriNet{Symbol}()
+    copy_parts!(L, pn, S=:)
 
     if length(input_m) > 0
-        add_parts!(L, :S, length(unique(input_m)), sname=unique(input_m))
-        add_parts!(L, :M, length(input_m), m=vcat(incident(L, input_m, :sname)...))
+        # add tokens
+        add_parts!(
+            L, :M, length(input_m),
+            m = vcat(incident(L, pn[input_m, :sname], :sname)...)
+        )
     end
 
     # get R
-    output_m = epiPN[incident(epiPN, t, :ot), [:os,:sname]]
-
     R = MarkedLabelledPetriNet{Symbol}()
+    copy_parts!(R, pn, S=:)
 
     if length(output_m) > 0
-        add_parts!(R, :S, length(unique(output_m)), sname=unique(output_m))
-        add_parts!(R, :M, length(output_m), m=vcat(incident(R, output_m, :sname)...))
+        # add tokens
+        add_parts!(
+            R, :M, length(output_m),
+            m = vcat(incident(R, pn[output_m, :sname], :sname)...)
+        )
     end
 
-    # get I
     I, span = only(maximum_common_subobject([L,R], abstract=false))
 
     retval = (
@@ -67,9 +86,18 @@ epiPN_rules = map(parts(epiPN, :T)) do t
     return retval
 end
 
-get_matches(epiPN_rules[1].rule, epiPN)
-homomorphisms(epiPN_rules[1].L, epiPN, monic=true)
+# rewrite rules for our model
+sirpn_rules = Dict([
+    sirpn[t,:tname] => make_rule(sirpn, t)
+    for t in parts(sirpn, :T)
+])
 
+# # test rules
+# epiPN1 = deepcopy(epiPN);
+# poptable(epiPN1)
+# mset = get_matches(epiPN_rules[:birth].rule, epiPN1);
+# epiPN1 = rewrite_match(epiPN_rules[:birth].rule, sample(mset));
+# poptable(epiPN1)
 
 # @inline function rate_to_proportion(r::T, t::T) where {T<:Float64}
 #     1-exp(-r*t)
