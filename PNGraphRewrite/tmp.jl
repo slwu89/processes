@@ -1,5 +1,5 @@
 using Catlab, AlgebraicPetri, AlgebraicRewriting
-using Distributions
+using Distributions, Fleck
 
 # --------------------------------------------------------------------------------
 # we want a PN with a marking
@@ -90,6 +90,24 @@ end
 sirpn_rules = Dict([
     sirpn[t,:tname] => make_rule(sirpn, t)
     for t in parts(sirpn, :T)
+])
+
+# --------------------------------------------------------------------------------
+# continuous time discrete event simulation
+
+# how to ensure `get_dist` returns a value of type `T`?
+mutable struct process{T<:ContinuousUnivariateDistribution,C,F<:Function}
+    dist::T
+    clocks::C
+    get_dist::F
+end
+
+pp = process(Exponential(), 1, x->x)
+
+
+# clocks: each event has a set of clock IDs
+sirpn_clocks = Dict([
+    :inf => process{Exponential,Int,}
 ])
 
 # # test rules
