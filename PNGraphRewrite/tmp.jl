@@ -1,4 +1,4 @@
-using Catlab, AlgebraicPetri, AlgebraicRewriting
+using Catlab, AlgebraicPetri, AlgebraicRewriting, AlgebraicRewriting.Incremental
 using Distributions, Fleck
 using SpecialFunctions
 using Plots
@@ -140,29 +140,7 @@ sirclock[only(incident(sirclock, :deathS, :name)), :clock] = (t) -> Exponential(
 sirclock[only(incident(sirclock, :deathI, :name)), :clock] = (t) -> Exponential(1 / μ)
 sirclock[only(incident(sirclock, :deathR, :name)), :clock] = (t) -> Exponential(1 / μ)
 
-# the non Markovian clock
-sirclock[only(incident(sirclock, :rec, :name)), :clock] = (t) -> Exponential(1 / μ)
-
-
-# # test rules
-# epiPN1 = deepcopy(epiPN);
-# poptable(epiPN1)
-# mset = get_matches(epiPN_rules[:birth].rule, epiPN1);
-# epiPN1 = rewrite_match(epiPN_rules[:birth].rule, sample(mset));
-# poptable(epiPN1)
-
-# @inline function rate_to_proportion(r::T, t::T) where {T<:Float64}
-#     1-exp(-r*t)
-# end
-
-# δt = 0.1
-# nsteps = 400
-# tmax = nsteps*δt
-# tspan = (0.0,nsteps)
-# t = 0.0:δt:tmax;
-# p = [0.05,10.0,0.25,δt]; # β,c,γ,δt
-
-
+# get parameters of a Weibull (from https://github.com/cran/mixdist/blob/master/R/weibullpar.R)
 function weibullpar(mu, sigma)
     cv = sigma / mu
     if cv < 1e-06
@@ -186,6 +164,7 @@ function weibullpar(mu, sigma)
 end
 
 α, θ = weibullpar(7, 2.6)
-mean(Weibull(α,θ))
-std(Weibull(α,θ))
-histogram(rand(Weibull(α,θ),1000))
+
+# the non Markovian clock
+sirclock[only(incident(sirclock, :rec, :name)), :clock] = (t) -> Weibull(α,θ)
+
