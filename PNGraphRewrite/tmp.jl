@@ -1,5 +1,7 @@
 using Catlab, AlgebraicPetri, AlgebraicRewriting
 using Distributions, Fleck
+using SpecialFunctions
+using Plots
 
 # --------------------------------------------------------------------------------
 # we want a PN with a marking
@@ -43,6 +45,32 @@ add_parts!(sirpn, :M, 100, m=[fill(1,95); fill(2,5)])
 marking(sirpn)
 
 # --------------------------------------------------------------------------------
+# we want something to store the rules, clocks associated to each, and their type
+
+@present SchClockSystem(FreeSchema) begin
+    (Clock,Event)::Ob
+    NameType::AttrType
+    RuleType::AttrType
+    ClockType::AttrType
+    event::Hom(Clock,Event)
+    name::Attr(Event,NameType)
+    type::Attr(Event,NameType)
+    rule::Attr(Event,RuleType)
+    clock::Attr(Event,ClockType)
+end
+
+# to_graphviz(SchClockSystem)
+
+@acset_type ClockSystem(SchClockSystem, index=[:event,:type,:name])
+
+sirclock = @acset ClockSystem{Symbol,Rule,Function} begin
+    Event=nt(sirpn)
+    name=sirpn[:,:tname]
+    type=[:Markov,:NonMarkov,:Markov,:Markov,:Markov,:Markov]
+end
+
+
+# --------------------------------------------------------------------------------
 # make the set of rewrite rules
 
 # function to make a DPO rule for a transition in a marked PN
@@ -76,39 +104,45 @@ function make_rule(pn::T, t) where {T<:MarkedLabelledPetriNet}
 
     I, span = only(maximum_common_subobject([L,R], abstract=false))
 
-    retval = (
-        rule = Rule(legs(first(span))[1], legs(first(span))[2]),
-        L = L,
-        R = R,
-        I = I
-    )
+    # retval = (
+    #     rule = Rule(legs(first(span))[1], legs(first(span))[2]),
+    #     L = L,
+    #     R = R,
+    #     I = I
+    # )
 
-    return retval
+    return Rule(legs(first(span))[1], legs(first(span))[2])
 end
 
-# rewrite rules for our model
-sirpn_rules = Dict([
-    sirpn[t,:tname] => make_rule(sirpn, t)
-    for t in parts(sirpn, :T)
-])
+# # rewrite rules for our model
+# sirpn_rules = Dict([
+#     sirpn[t,:tname] => make_rule(sirpn, t)
+#     for t in parts(sirpn, :T)
+# ])
+
+for t in parts(sirclock,:Event)
+    sirclock[t,:rule] = make_rule(sirpn, t)
+end
 
 # --------------------------------------------------------------------------------
 # continuous time discrete event simulation
 
-# how to ensure `get_dist` returns a value of type `T`?
-mutable struct process{T<:ContinuousUnivariateDistribution,C,F<:Function}
-    dist::T
-    clocks::C
-    get_dist::F
-end
+pop = nparts(sirpn, :M)
+lifespan = 65*365
+μ = 1/lifespan
 
-pp = process(Exponential(), 1, x->x)
+β = 0.05*5
 
+# should somehow check that if this fn returns Exponential, its mapped to type Markov
+sirclock[only(incident(sirclock, :inf, :name)), :clock] = (t) -> Exponential(1 / β)
+sirclock[only(incident(sirclock, :birth, :name)), :clock] = (t) -> Exponential(1 / (μ*pop))
+sirclock[only(incident(sirclock, :deathS, :name)), :clock] = (t) -> Exponential(1 / μ)
+sirclock[only(incident(sirclock, :deathI, :name)), :clock] = (t) -> Exponential(1 / μ)
+sirclock[only(incident(sirclock, :deathR, :name)), :clock] = (t) -> Exponential(1 / μ)
 
-# clocks: each event has a set of clock IDs
-sirpn_clocks = Dict([
-    :inf => process{Exponential,Int,}
-])
+# the non Markovian clock
+sirclock[only(incident(sirclock, :rec, :name)), :clock] = (t) -> Exponential(1 / μ)
+
 
 # # test rules
 # epiPN1 = deepcopy(epiPN);
@@ -127,3 +161,31 @@ sirpn_clocks = Dict([
 # tspan = (0.0,nsteps)
 # t = 0.0:δt:tmax;
 # p = [0.05,10.0,0.25,δt]; # β,c,γ,δt
+
+
+function weibullpar(mu, sigma)
+    cv = sigma / mu
+    if cv < 1e-06
+        nu = cv / (sqrt(trigamma(1)) - cv * digamma(1))
+        shape = 1 / nu
+        scale = mu / (1 + nu * digamma(1))
+    else
+        aa = log(cv^2 + 1)
+        nu = 2 * cv / (1 + cv)
+        while true
+            gb = (lgamma(1 + 2 * nu) - 2 * lgamma(1 + nu) - aa) / (2 * (digamma(1 + 2 * nu) - digamma(1 + nu)))
+            nu -= gb
+            if abs(gb) < 1e-12
+                break
+            end
+        end
+        shape = 1 / nu
+        scale = exp(log(mu) - lgamma(1 + nu))
+    end
+    return shape, scale
+end
+
+α, θ = weibullpar(7, 2.6)
+mean(Weibull(α,θ))
+std(Weibull(α,θ))
+histogram(rand(Weibull(α,θ),1000))
