@@ -45,32 +45,6 @@ add_parts!(sirpn, :M, 100, m=[fill(1,95); fill(2,5)])
 marking(sirpn)
 
 # --------------------------------------------------------------------------------
-# we want something to store the rules, clocks associated to each, and their type
-
-@present SchClockSystem(FreeSchema) begin
-    (Clock,Event)::Ob
-    NameType::AttrType
-    RuleType::AttrType
-    ClockType::AttrType
-    event::Hom(Clock,Event)
-    name::Attr(Event,NameType)
-    type::Attr(Event,NameType)
-    rule::Attr(Event,RuleType)
-    clock::Attr(Event,ClockType)
-end
-
-# to_graphviz(SchClockSystem)
-
-@acset_type ClockSystem(SchClockSystem, index=[:event,:type,:name])
-
-sirclock = @acset ClockSystem{Symbol,Rule,Function} begin
-    Event=nt(sirpn)
-    name=sirpn[:,:tname]
-    type=[:Markov,:NonMarkov,:Markov,:Markov,:Markov,:Markov]
-end
-
-
-# --------------------------------------------------------------------------------
 # make the set of rewrite rules
 
 # function to make a DPO rule for a transition in a marked PN
@@ -104,21 +78,63 @@ function make_rule(pn::T, t) where {T<:MarkedLabelledPetriNet}
 
     I, span = only(maximum_common_subobject([L,R], abstract=false))
 
-    # retval = (
-    #     rule = Rule(legs(first(span))[1], legs(first(span))[2]),
-    #     L = L,
-    #     R = R,
-    #     I = I
-    # )
-
     return Rule(legs(first(span))[1], legs(first(span))[2])
 end
 
-# # rewrite rules for our model
-# sirpn_rules = Dict([
-#     sirpn[t,:tname] => make_rule(sirpn, t)
-#     for t in parts(sirpn, :T)
-# ])
+# rewrite rules for our model
+sirpn_rules = Dict([
+    sirpn[t,:tname] => make_rule(sirpn, t)
+    for t in parts(sirpn, :T)
+])
+
+# ---------------
+# "manual" update
+
+hset_inf = IncHomSet(codom(sirpn_rules[:inf].L), [sirpn_rules[t].R for t in sirpn[:,:tname]], sirpn)
+@assert prod(size(matches(hset_inf))) == marking(sirpn).S * marking(sirpn).I
+
+# make an infection happen
+event_maps = rewrite_match_maps(sirpn_rules[:inf], sample(matches(hset_inf)))
+
+# the new state
+marking(sirpn)
+marking(codom(event_maps[:kh]))
+
+Incremental.deletion!(hset_inf, event_maps[:kg])
+Incremental.addition!(hset_inf, 1, event_maps[:rh], event_maps[:kh])
+
+# ---------------
+# rewrite! update
+rewrite!(hset_inf, sirpn_rules[:inf], sample(matches(hset_inf)))
+
+
+
+
+
+# --------------------------------------------------------------------------------
+# we want something to store the rules, clocks associated to each, and their type
+
+@present SchClockSystem(FreeSchema) begin
+    (Clock,Event)::Ob
+    NameType::AttrType
+    RuleType::AttrType
+    ClockType::AttrType
+    event::Hom(Clock,Event)
+    name::Attr(Event,NameType)
+    type::Attr(Event,NameType)
+    rule::Attr(Event,RuleType)
+    clock::Attr(Event,ClockType)
+end
+
+# to_graphviz(SchClockSystem)
+
+@acset_type ClockSystem(SchClockSystem, index=[:event,:type,:name])
+
+sirclock = @acset ClockSystem{Symbol,Rule,Function} begin
+    Event=nt(sirpn)
+    name=sirpn[:,:tname]
+    type=[:Markov,:NonMarkov,:Markov,:Markov,:Markov,:Markov]
+end
 
 for t in parts(sirclock,:Event)
     sirclock[t,:rule] = make_rule(sirpn, t)
@@ -168,3 +184,26 @@ end
 # the non Markovian clock
 sirclock[only(incident(sirclock, :rec, :name)), :clock] = (t) -> Weibull(α,θ)
 
+
+# -----------------------------------------
+# check how matches and rewriting will work
+
+# inf_match = get_matches(sirclock[1,:rule], sirpn)
+# rec_match = get_matches(sirclock[2,:rule], sirpn)
+
+hset_inf = IncHomSet(codom(sirclock[1,:rule].L), getfield.(sirclock[:,:rule],:R), sirpn)
+hset_rec = IncHomSet(codom(sirclock[2,:rule].L), getfield.(sirclock[:,:rule],:R), sirpn)
+
+# make an infection happen
+event_maps = rewrite_match_maps(sirclock[1,:rule], sample(matches(hset_inf)))
+
+# the new state
+marking(codom(event_maps[:kh]))
+sirpn = codom(event_maps[:kh])
+
+Incremental.deletion!(hset_inf, event_maps[:kg])
+Incremental.deletion!(hset_rec, event_maps[:kg])
+Incremental.addition!(hset_inf, 1, event_maps[:rh], event_maps[:kh])
+Incremental.addition!(hset_rec, 1, event_maps[:rh], event_maps[:kh])
+
+rewrite!(hset_inf, sirclock[1,:rule], sample(matches(hset_inf)))
