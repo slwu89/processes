@@ -76,10 +76,13 @@ function make_rule(pn::T, t) where {T<:MarkedLabelledPetriNet}
         )
     end
 
-    I, span = only(maximum_common_subobject([L,R], abstract=false))
+    _, span = only(maximum_common_subobject([L,R], abstract=false))
 
     return Rule(legs(first(span))[1], legs(first(span))[2])
 end
+
+# -----------------
+# test manual updates
 
 # rewrite rules for our model
 sirpn_rules = Dict([
@@ -103,6 +106,8 @@ marking(codom(event_maps[:kh]))
 Incremental.deletion!(hset_inf, event_maps[:kg])
 Incremental.addition!(hset_inf, 1, event_maps[:rh], event_maps[:kh])
 
+prod(size(matches(hset_inf)))
+
 # ---------------
 # rewrite! update
 rewrite!(hset_inf, sirpn_rules[:inf], sample(matches(hset_inf)))
@@ -115,22 +120,24 @@ rewrite!(hset_inf, sirpn_rules[:inf], sample(matches(hset_inf)))
 # we want something to store the rules, clocks associated to each, and their type
 
 @present SchClockSystem(FreeSchema) begin
-    (Clock,Event)::Ob
-    NameType::AttrType
-    RuleType::AttrType
-    ClockType::AttrType
+    (Clock,Event)::Ob # clock is a single ID, event is an entire class of clocks (e.g. "typed" clocks)
+    NameType::AttrType # each event has a name
+    RuleType::AttrType # each event has a rewrite rule
+    DistType::AttrType # each event has a function that returns a firing time when it's enabled
+    MatchType::AttrType # each event has set of matches associated with it (in theory, this would instead be bijective with Clock)
     event::Hom(Clock,Event)
     name::Attr(Event,NameType)
-    type::Attr(Event,NameType)
+    type::Attr(Event,NameType) # markov or not
     rule::Attr(Event,RuleType)
-    clock::Attr(Event,ClockType)
+    dist::Attr(Event,DistType)
+    match::Attr(Event,MatchType)
 end
 
 # to_graphviz(SchClockSystem)
 
-@acset_type ClockSystem(SchClockSystem, index=[:event,:type,:name])
+@acset_type ClockSystem(SchClockSystem, index=[:event,:type], unique_index=[:name])
 
-sirclock = @acset ClockSystem{Symbol,Rule,Function} begin
+sirclock = @acset ClockSystem{Symbol,Rule,Function,Incremental.IncSumHomSet} begin
     Event=nt(sirpn)
     name=sirpn[:,:tname]
     type=[:Markov,:NonMarkov,:Markov,:Markov,:Markov,:Markov]
@@ -141,7 +148,7 @@ for t in parts(sirclock,:Event)
 end
 
 # --------------------------------------------------------------------------------
-# continuous time discrete event simulation
+# add the distribution functions
 
 pop = nparts(sirpn, :M)
 lifespan = 65*365
@@ -150,11 +157,11 @@ lifespan = 65*365
 β = 0.05*5
 
 # should somehow check that if this fn returns Exponential, its mapped to type Markov
-sirclock[only(incident(sirclock, :inf, :name)), :clock] = (t) -> Exponential(1 / β)
-sirclock[only(incident(sirclock, :birth, :name)), :clock] = (t) -> Exponential(1 / (μ*pop))
-sirclock[only(incident(sirclock, :deathS, :name)), :clock] = (t) -> Exponential(1 / μ)
-sirclock[only(incident(sirclock, :deathI, :name)), :clock] = (t) -> Exponential(1 / μ)
-sirclock[only(incident(sirclock, :deathR, :name)), :clock] = (t) -> Exponential(1 / μ)
+sirclock[only(incident(sirclock, :inf, :name)), :dist] = (t) -> Exponential(1 / β)
+sirclock[only(incident(sirclock, :birth, :name)), :dist] = (t) -> Exponential(1 / (μ*pop))
+sirclock[only(incident(sirclock, :deathS, :name)), :dist] = (t) -> Exponential(1 / μ)
+sirclock[only(incident(sirclock, :deathI, :name)), :dist] = (t) -> Exponential(1 / μ)
+sirclock[only(incident(sirclock, :deathR, :name)), :dist] = (t) -> Exponential(1 / μ)
 
 # get parameters of a Weibull (from https://github.com/cran/mixdist/blob/master/R/weibullpar.R)
 function weibullpar(mu, sigma)
@@ -182,7 +189,15 @@ end
 α, θ = weibullpar(7, 2.6)
 
 # the non Markovian clock
-sirclock[only(incident(sirclock, :rec, :name)), :clock] = (t) -> Weibull(α,θ)
+sirclock[only(incident(sirclock, :rec, :name)), :dist] = (t) -> Weibull(α,θ)
+
+
+# --------------------------------------------------------------------------------
+# add the match sets
+for t in parts(sirclock,:Event)
+    sirclock[t,:match] = IncHomSet(codom(sirclock[t,:rule].L), getfield.(sirclock[:,:rule], :R), sirpn)
+end
+
 
 
 # -----------------------------------------

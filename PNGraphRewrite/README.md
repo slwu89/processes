@@ -5,6 +5,7 @@ It's a good idea to be able to formalize the "token game" that occurs on a marke
 # Notes
 
   * after Fleck is registered, move the dep to the one in the general repo
+  * after https://github.com/AlgebraicJulia/AlgebraicRewriting.jl/pull/43 is merged, go back to depending on main
 
 # References
 
