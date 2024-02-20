@@ -1,5 +1,6 @@
 using Catlab, AlgebraicPetri, AlgebraicRewriting, AlgebraicRewriting.Incremental
 using Distributions, Fleck
+using Random
 using SpecialFunctions
 using Plots
 
@@ -127,7 +128,7 @@ rewrite!(hset_inf, sirpn_rules[:inf], sample(matches(hset_inf)))
     MatchType::AttrType # each event has set of matches associated with it (in theory, this would instead be bijective with Clock)
     event::Hom(Clock,Event)
     name::Attr(Event,NameType)
-    type::Attr(Event,NameType) # markov or not
+    type::Attr(Event,NameType) # markov or not; get rid of this on the next go?
     rule::Attr(Event,RuleType)
     dist::Attr(Event,DistType)
     match::Attr(Event,MatchType)
@@ -194,11 +195,53 @@ sirclock[only(incident(sirclock, :rec, :name)), :dist] = (t) -> Weibull(α,θ)
 
 # --------------------------------------------------------------------------------
 # add the match sets
+
 for t in parts(sirclock,:Event)
     sirclock[t,:match] = IncHomSet(codom(sirclock[t,:rule].L), getfield.(sirclock[:,:rule], :R), sirpn)
 end
 
 
+# --------------------------------------------------------------------------------
+# sample and add the clocks
+
+# Fleck sampler
+sampler = FirstToFire{Int, Float64}()
+rng = Random.RandomDevice()
+tnow::Float64 = 0.0
+
+# add clocks
+# we should actually start the recovery clocks some random time in the past, unless we assume they all got sick right at tnow, which might
+# be fine for some scenarios.
+for t in parts(sirclock,:Event)
+    nmatch = prod(size(matches(sirclock[t,:match])))
+    newclocks = add_parts!(
+        sirclock, :Clock, nmatch,
+        event = fill(t, nmatch)
+    )
+    for c in newclocks
+        enable!(sampler, c, sirclock[t, :dist](tnow), tnow, tnow, rng)
+    end
+end
+
+# when and what will happen next?
+(tnow, which) = next(sampler, tnow, rng)
+
+# step! should be here and act on the clock system
+# sirclock[which, [:event,:rule]]
+
+update_maps = rewrite_match_maps(sirclock[which, [:event,:rule]], sample(matches(sirclock[which, [:event,:match]])))
+
+sirpn = codom(update_maps[:rh])
+
+# update matches for all events
+for t in parts(sirclock, :Event)
+    Incremental.deletion!(sirclocl[t,:match], update_maps[:kg])
+    Incremental.addition!(sirclocl[t,:match], sirclock[which, :event], update_maps[:rh], update_maps[:kh])
+end
+
+
+
+# step! ends
 
 # -----------------------------------------
 # check how matches and rewriting will work
@@ -221,4 +264,4 @@ Incremental.deletion!(hset_rec, event_maps[:kg])
 Incremental.addition!(hset_inf, 1, event_maps[:rh], event_maps[:kh])
 Incremental.addition!(hset_rec, 1, event_maps[:rh], event_maps[:kh])
 
-rewrite!(hset_inf, sirclock[1,:rule], sample(matches(hset_inf)))
+rewrite!(hset_inf, sirclock[1,:rule], sample(matches(hset_inf)))e
