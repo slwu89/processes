@@ -40,7 +40,7 @@ end
 
 @acset_type MarkedLabelledPetriNet(SchMarkedLabelledPetriNet, index=[:it, :is, :ot, :os]) <: AbstractLabelledPetriNet
 
-to_graphviz(SchMarkedLabelledPetriNet)
+to_graphviz(SchMarkedLabelledPetriNet, graph_attrs=Dict(:dpi=>"72",:size=>"4",:ratio=>"expand"))
 
 # a little function to see how many tokens are in each place
 function marking(pn)
@@ -112,25 +112,9 @@ to_graphviz(SchClockSystem)
 # --------------------------------------------------------------------------------
 # awful simulator function to avoid julia global weirdness
 
-function run_sir(S,I,R,maxevent)
+function run_sirs(S,I,R,maxevent,verbose=false)
 
-    # PN stores the model state
-    # sirpn = @acset MarkedLabelledPetriNet{Symbol} begin
-    #     S=3
-    #     sname=[:S,:I,:R]
-    #     T=6
-    #     tname=[:inf,:rec,:birth,:deathS,:deathI,:deathR]
-    #     I=6
-    #     it=[1,1,2,4,5,6]
-    #     is=[1,2,2,1,2,3]
-    #     O=4
-    #     ot=[1,1,2,3]
-    #     os=[2,2,3,1]
-    #     M=sum([S,I,R])
-    #     m=[fill(1,S);fill(2,I);fill(3,R)]
-    # end
-
-    sirpn = @acset MarkedLabelledPetriNet{Symbol} begin
+    statepn = @acset MarkedLabelledPetriNet{Symbol} begin
         S=3
         sname=[:S,:I,:R]
         T=7
@@ -147,20 +131,20 @@ function run_sir(S,I,R,maxevent)
 
     # clock system stores the sampling method
     sirclock = @acset ClockSystem{Symbol,Rule,Function,Incremental.IncCCHomSet,Tuple{Int,Int,Int}} begin
-        Event=nt(sirpn)
-        name=sirpn[:,:tname]
+        Event=nt(statepn)
+        name=statepn[:,:tname]
     end
 
     # add rules
     for t in parts(sirclock,:Event)
-        sirclock[t,:rule] = make_rule(sirpn, t)
+        sirclock[t,:rule] = make_rule(statepn, t)
     end
 
     # which rules are always enabled?
     always_enabled_t = findall(nparts.(codom.(getfield.(sirclock[:, :rule], :L)), :M) .== 0)
 
     # add clock distributions
-    pop = nparts(sirpn, :M)
+    pop = nparts(statepn, :M)
     lifespan = 65*365
     μ = 1/lifespan
     β = 0.001
@@ -180,7 +164,7 @@ function run_sir(S,I,R,maxevent)
 
     # add incremental homsets
     for t in parts(sirclock,:Event)
-        sirclock[t,:match] = IncHomSet(codom(sirclock[t,:rule].L), getfield.(sirclock[:,:rule], :R), sirpn, single=true)
+        sirclock[t,:match] = IncHomSet(codom(sirclock[t,:rule].L), getfield.(sirclock[:,:rule], :R), statepn, single=true)
     end
 
     # Fleck sampler
@@ -203,21 +187,21 @@ function run_sir(S,I,R,maxevent)
     end
 
     # record initial state
-    output = Vector{typeof((t=0.0,marking(sirpn)...))}()
-    push!(output, (t=0.0,marking(sirpn)...))
+    output = Vector{typeof((t=0.0,marking(statepn)...))}()
+    push!(output, (t=0.0,marking(statepn)...))
 
     # when and what will happen next?
     (tnow, which) = next(sampler, tnow, rng)
 
     while length(output) < maxevent
-        println("event $which fired at $tnow, total number of events: $(length(output))")
+        !verbose || println("event $which fired at $tnow, total number of events: $(length(output))")
         event = first(which)
         update_maps = rewrite_match_maps(
             sirclock[event, :rule], 
             sirclock[event, :match][Pair(which[2:end]...)]
         )
-        sirpn = codom(update_maps[:rh])
-        push!(output, (t=tnow,marking(sirpn)...))
+        statepn = codom(update_maps[:rh])
+        push!(output, (t=tnow,marking(statepn)...))
 
         # "always enabled" transitions need special treatment when they fire
         # because their hom-set won't change, the clocks won't be reset, so we do it manually
@@ -261,7 +245,7 @@ end
 
 # non-markovian SIR with demography
 # sirout = run_sir(95,5,0,1000)
-sirout = run_sir(95,5,0,1000)
+sirout = run_sirs(95,5,0,1000)
 
 f = Figure()
 ax = Axis(f[1,1])
@@ -275,5 +259,5 @@ Legend(f[1, 2],
 f
 
 # can also run a simple birth-death model
-sirout = run_sir(100,0,0,500)
-lines(first.(sirout), getindex.(sirout,2))
+sirout = run_sirs(100,0,0,500)
+f = lines(first.(sirout), getindex.(sirout,2))
