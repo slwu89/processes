@@ -260,13 +260,18 @@ function run_sir(S,I,R,maxevent)
 end
 
 # non-markovian SIR with demography
-sirout = run_sir(95,5,0,500)
+# sirout = run_sir(95,5,0,1000)
+sirout = run_sir(95,5,0,1000)
 
 f = Figure()
 ax = Axis(f[1,1])
-lines!(ax, first.(sirout), getindex.(sirout,2))
-lines!(ax, first.(sirout), getindex.(sirout,3))
-lines!(ax, first.(sirout), getindex.(sirout,4))
+ln1 = lines!(ax, first.(sirout), getindex.(sirout,2))
+ln2 = lines!(ax, first.(sirout), getindex.(sirout,3))
+ln3 = lines!(ax, first.(sirout), getindex.(sirout,4))
+Legend(f[1, 2],
+    [ln1,ln2,ln3],
+    ["S", "I","R"]
+)
 f
 
 # can also run a simple birth-death model
