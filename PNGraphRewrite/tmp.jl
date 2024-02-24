@@ -115,17 +115,32 @@ to_graphviz(SchClockSystem)
 function run_sir(S,I,R,maxevent)
 
     # PN stores the model state
+    # sirpn = @acset MarkedLabelledPetriNet{Symbol} begin
+    #     S=3
+    #     sname=[:S,:I,:R]
+    #     T=6
+    #     tname=[:inf,:rec,:birth,:deathS,:deathI,:deathR]
+    #     I=6
+    #     it=[1,1,2,4,5,6]
+    #     is=[1,2,2,1,2,3]
+    #     O=4
+    #     ot=[1,1,2,3]
+    #     os=[2,2,3,1]
+    #     M=sum([S,I,R])
+    #     m=[fill(1,S);fill(2,I);fill(3,R)]
+    # end
+
     sirpn = @acset MarkedLabelledPetriNet{Symbol} begin
         S=3
         sname=[:S,:I,:R]
-        T=6
-        tname=[:inf,:rec,:birth,:deathS,:deathI,:deathR]
-        I=6
-        it=[1,1,2,4,5,6]
-        is=[1,2,2,1,2,3]
-        O=4
-        ot=[1,1,2,3]
-        os=[2,2,3,1]
+        T=7
+        tname=[:inf,:rec,:birth,:deathS,:deathI,:deathR,:wane]
+        I=7
+        it=[1,1,2,4,5,6,7]
+        is=[1,2,2,1,2,3,3]
+        O=5
+        ot=[1,1,2,3,7]
+        os=[2,2,3,1,1]
         M=sum([S,I,R])
         m=[fill(1,S);fill(2,I);fill(3,R)]
     end
@@ -148,7 +163,8 @@ function run_sir(S,I,R,maxevent)
     pop = nparts(sirpn, :M)
     lifespan = 65*365
     μ = 1/lifespan
-    β = 0.05
+    β = 0.001
+    wane = 60
 
     # should somehow check that if this fn returns Exponential, its mapped to type Markov
     sirclock[only(incident(sirclock, :inf, :name)), :dist] = (t) -> Exponential(1 / β)
@@ -156,8 +172,9 @@ function run_sir(S,I,R,maxevent)
     sirclock[only(incident(sirclock, :deathS, :name)), :dist] = (t) -> Exponential(1 / μ)
     sirclock[only(incident(sirclock, :deathI, :name)), :dist] = (t) -> Exponential(1 / μ)
     sirclock[only(incident(sirclock, :deathR, :name)), :dist] = (t) -> Exponential(1 / μ)
+    sirclock[only(incident(sirclock, :wane, :name)), :dist] = (t) -> Exponential(wane)
 
-    α, θ = weibullpar(7, 2.6)
+    α, θ = weibullpar(30, 5)
     # the non Markovian clock
     sirclock[only(incident(sirclock, :rec, :name)), :dist] = (t) -> Weibull(α,θ)
 
@@ -202,12 +219,6 @@ function run_sir(S,I,R,maxevent)
         sirpn = codom(update_maps[:rh])
         push!(output, (t=tnow,marking(sirpn)...))
 
-        # # awful hack, need to think about the general rule for always-enabled transitions
-        # if t == 3 && event == 3
-        #     disable!(sampler, which, tnow)
-        #     enable!(sampler, which, sirclock[t, :dist](tnow), tnow, tnow, rng)
-        # end
-
         # "always enabled" transitions need special treatment when they fire
         # because their hom-set won't change, the clocks won't be reset, so we do it manually
         if event ∈ always_enabled_t
@@ -249,7 +260,7 @@ function run_sir(S,I,R,maxevent)
 end
 
 # non-markovian SIR with demography
-sirout = run_sir(95,5,0,100)
+sirout = run_sir(95,5,0,500)
 
 f = Figure()
 ax = Axis(f[1,1])
