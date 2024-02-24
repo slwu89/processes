@@ -36,7 +36,7 @@ If the initial marking contains only `S` individuals, we get the classic [birth-
 
 ![BD trajectory](./figures/BDtrajectory.png)
 
-The resulting simulation is a bit slow (these population sizes are very very small), but the proof of concept is there.
+The resulting simulation is a bit slow (even considering these population sizes are very very small), but the proof of concept is there.
 
 You may note that the `Clock` object in the schema actually doesn't do anything yet. I am thinking about closer integration with Fleck, so kept it around. Also it's nice conceptually to see.
 
