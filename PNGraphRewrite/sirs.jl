@@ -109,6 +109,9 @@ to_graphviz(SchClockSystem)
 
 @acset_type ClockSystem(SchClockSystem, index=[:event], unique_index=[:name,:key])
 
+# const ClockKeyType = Tuple{Int,Int,Int} # for single connected component homsets
+const ClockKeyType = Tuple{Int,Vector{Pair{Int,Int}}}
+
 # --------------------------------------------------------------------------------
 # awful simulator function to avoid julia global weirdness
 
@@ -130,7 +133,7 @@ function run_sirs(S,I,R,maxevent,verbose=false)
     end
 
     # clock system stores the sampling method
-    sirclock = @acset ClockSystem{Symbol,Rule,Function,Incremental.IncCCHomSet,Tuple{Int,Int,Int}} begin
+    sirclock = @acset ClockSystem{Symbol,Rule,Function,Incremental.IncSumHomSet,ClockKeyType} begin
         Event=nt(statepn)
         name=statepn[:,:tname]
     end
@@ -164,18 +167,18 @@ function run_sirs(S,I,R,maxevent,verbose=false)
 
     # add incremental homsets
     for t in parts(sirclock,:Event)
-        sirclock[t,:match] = IncHomSet(codom(sirclock[t,:rule].L), getfield.(sirclock[:,:rule], :R), statepn, single=true)
+        sirclock[t,:match] = IncHomSet(codom(sirclock[t,:rule].L), getfield.(sirclock[:,:rule], :R), statepn)
     end
 
     # Fleck sampler
-    sampler = FirstToFire{Tuple{Int,Int,Int}, Float64}()
+    sampler = FirstToFire{ClockKeyType, Float64}()
     rng = Random.RandomDevice()
     tnow = 0.0
 
     for t in parts(sirclock,:Event)
         newkeys = collect(keys(sirclock[t,:match]))
         newkeys = map(newkeys) do k
-            (t,k...)
+            (t, k)
         end
         add_parts!(
             sirclock, :Clock, length(newkeys),
@@ -194,11 +197,11 @@ function run_sirs(S,I,R,maxevent,verbose=false)
     (tnow, which) = next(sampler, tnow, rng)
 
     while length(output) < maxevent
-        !verbose || println("event $which fired at $tnow, total number of events: $(length(output))")
+        !verbose || println("event $first(which) fired at $tnow, total number of events: $(length(output))")
         event = first(which)
         update_maps = rewrite_match_maps(
             sirclock[event, :rule], 
-            sirclock[event, :match][Pair(which[2:end]...)]
+            sirclock[event, :match][last(which)]
         )
         statepn = codom(update_maps[:rh])
         push!(output, (t=tnow,marking(statepn)...))
@@ -216,10 +219,10 @@ function run_sirs(S,I,R,maxevent,verbose=false)
             del = Incremental.deletion!(sirclock[t,:match], update_maps[:kg])
             add = Incremental.addition!(sirclock[t,:match], event, update_maps[:rh], update_maps[:kh])
             del = map(del) do k
-                (t,k...)
+                (t,k)
             end
             add = map(add) do k
-                (t,k...)
+                (t,k)
             end
             # clocks that are disabled in the new marking (state):
             # 1: disable in the sampler
@@ -244,8 +247,7 @@ function run_sirs(S,I,R,maxevent,verbose=false)
 end
 
 # non-markovian SIR with demography
-# sirout = run_sir(95,5,0,1000)
-sirout = run_sirs(95,5,0,1000)
+sirout = run_sirs(95,5,0,1250)
 
 f = Figure()
 ax = Axis(f[1,1])
