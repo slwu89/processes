@@ -197,7 +197,7 @@ function run_sirs(S,I,R,maxevent,verbose=false)
     (tnow, which) = next(sampler, tnow, rng)
 
     while length(output) < maxevent
-        !verbose || println("event $first(which) fired at $tnow, total number of events: $(length(output))")
+        !verbose || println("event $(first(which)) fired at $tnow, total number of events: $(length(output))")
         event = first(which)
         update_maps = rewrite_match_maps(
             sirclock[event, :rule], 
@@ -247,7 +247,7 @@ function run_sirs(S,I,R,maxevent,verbose=false)
 end
 
 # non-markovian SIR with demography
-sirout = run_sirs(95,5,0,1250)
+sirout = run_sirs(95,5,0,1750,true)
 
 f = Figure()
 ax = Axis(f[1,1])
