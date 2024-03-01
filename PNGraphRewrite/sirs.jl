@@ -192,13 +192,16 @@ function run_spn(spn::T,clockdists,maxevent,verbose=false) where {T<:AbstractMar
     end
 
     # record initial state
-    output = Vector{typeof((t=0.0,marking(spn)...))}()
-    push!(output, (t=0.0,marking(spn)...))
+    nevent = 0
+    output = zeros(maxevent+1, 1+ns(spn))
+    output[nevent+1,1] = tnow
+    output[nevent+1,2:end] = Vec(marking(spn)...)
 
     # when and what will happen next?
     (tnow, which) = next(sampler, tnow, rng)
+    nevent += 1
 
-    while length(output) < maxevent
+    while nevent ≤ maxevent
         !verbose || println("event $(first(which)) fired at $tnow, total number of events: $(length(output))")
         event = first(which)
         update_maps = rewrite_match_maps(
@@ -206,7 +209,10 @@ function run_spn(spn::T,clockdists,maxevent,verbose=false) where {T<:AbstractMar
             sirclock[event, :match][last(which)]
         )
         spn = codom(update_maps[:rh])
-        push!(output, (t=tnow,marking(spn)...))
+
+        # record state after event
+        output[nevent+1,1] = tnow
+        output[nevent+1,2:end] = Vec(marking(spn)...)
 
         # "always enabled" transitions need special treatment when they fire
         # because their hom-set won't change, the clocks won't be reset, so we do it manually
@@ -243,6 +249,7 @@ function run_spn(spn::T,clockdists,maxevent,verbose=false) where {T<:AbstractMar
             
         end
         (tnow, which) = next(sampler, tnow, rng)
+        nevent += 1
     end
 
     return output
@@ -302,9 +309,9 @@ sirout = run_spn(statepn, clockdists, 2000, false)
 
 f = Figure()
 ax = Axis(f[1,1])
-ln1 = lines!(ax, first.(sirout), getindex.(sirout,2))
-ln2 = lines!(ax, first.(sirout), getindex.(sirout,3))
-ln3 = lines!(ax, first.(sirout), getindex.(sirout,4))
+ln1 = lines!(ax, sirout[:,1], sirout[:,2])
+ln2 = lines!(ax, sirout[:,1], sirout[:,3])
+ln3 = lines!(ax, sirout[:,1], sirout[:,4])
 Legend(f[1, 2],
     [ln1,ln2,ln3],
     ["S", "I","R"]
@@ -315,5 +322,5 @@ Makie.save("figures/SIRStrajectory.png", f, px_per_unit=1, size=(800,600))
 # can also run a simple birth-death model
 statepn = build_sirs_pn(100,0,0)
 sirout = run_spn(statepn, clockdists, 2000, false)
-f = lines(first.(sirout), getindex.(sirout,2))
+f = lines(sirout[:,1], sirout[:,2])
 Makie.save("figures/BDtrajectory.png", f, px_per_unit=1, size=(800,600))
