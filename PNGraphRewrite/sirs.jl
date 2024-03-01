@@ -5,10 +5,10 @@ using Random
 using Distributions
 using Makie,CairoMakie
 
-# --------------------------------------------------------------------------------
-# given mean and sd, solve for the parameters of a Weibull distribution,
-# so people believe us when we say it's actually non-Markov (we can cheat for Gamma with integer shape parameter)
-# (from https://github.com/cran/mixdist/blob/master/R/weibullpar.R)
+"""
+    Get the shape and scale parameters for a Weibull distribution with a given mean and variance.
+This code is a translation of the R "mixdist" package's function at https://github.com/cran/mixdist/blob/master/R/weibullpar.R
+"""
 function weibullpar(mu, sigma)
     cv = sigma / mu
     if cv < 1e-06
@@ -31,34 +31,54 @@ function weibullpar(mu, sigma)
     return shape, scale
 end
 
+
 # --------------------------------------------------------------------------------
-# we want a PN with a marking
+# The PN schemas and types we are interested in
+
+"""
+    This is a presentation of a Petri net with a marking (a set of tokens, and for each token, an assignment to a place it is at).
+"""
 @present SchMarkedLabelledPetriNet <: SchLabelledPetriNet begin
     M::Ob
     m::Hom(M,S)
 end
 
-@acset_type MarkedLabelledPetriNet(SchMarkedLabelledPetriNet, index=[:it, :is, :ot, :os]) <: AbstractLabelledPetriNet
+"""
+    An abstract type for all marked labelled Petri nets.
+"""
+@abstract_acset_type AbstractMarkedLabelledPetriNet <: AbstractLabelledPetriNet
 
-to_graphviz(SchMarkedLabelledPetriNet, graph_attrs=Dict(:dpi=>"72",:size=>"4",:ratio=>"expand"))
+"""
+    This is type for an acset to store instances of `SchMarkedLabelledPetriNet`, which is a subtype of `AbstractMarkedLabelledPetriNet`.
+"""
+@acset_type MarkedLabelledPetriNet(SchMarkedLabelledPetriNet, index=[:it, :is, :ot, :os]) <: AbstractMarkedLabelledPetriNet
 
-# a little function to see how many tokens are in each place
-function marking(pn)
+# visualize the schema of the PNs we are considering here
+# to_graphviz(SchMarkedLabelledPetriNet, graph_attrs=Dict(:dpi=>"72",:size=>"4",:ratio=>"expand"))
+
+"""
+    Given a petri net whose type `<:AbstractMarkedLabelledPetriNet`, return a `NamedTuple` giving the number
+of tokens assigned to each place; this is called a marking.
+"""
+function marking(pn::T) where {T<:AbstractMarkedLabelledPetriNet}
     names = Tuple(pn[:,:sname])
     vals = length.(incident(pn, parts(pn,:S), :m))
     return NamedTuple{names}(vals)
 end
 
+
 # --------------------------------------------------------------------------------
 # make the set of rewrite rules
 
-# function to make a DPO rule for a transition in a marked PN
-function make_rule(pn::T, t) where {T<:MarkedLabelledPetriNet}
+"""
+    Given an acset of type `<:AbstractMarkedLabelledPetriNet`, construct a DPO rewrite rule for transition `t`.
+"""
+function make_rule(pn::T, t) where {T<:AbstractMarkedLabelledPetriNet}
     input_m = inputs(pn, t)
     output_m = outputs(pn, t)
 
     # get L
-    L = MarkedLabelledPetriNet{Symbol}()
+    L = T()
     copy_parts!(L, pn, S=:)
 
     if length(input_m) > 0
@@ -70,7 +90,7 @@ function make_rule(pn::T, t) where {T<:MarkedLabelledPetriNet}
     end
 
     # get R
-    R = MarkedLabelledPetriNet{Symbol}()
+    R = T()
     copy_parts!(R, pn, S=:)
 
     if length(output_m) > 0
@@ -90,12 +110,17 @@ end
 # --------------------------------------------------------------------------------
 # we want something to store the rules, clocks associated to each, and their type
 
+"""
+    A presentation of a clock system, which is responsible for maintaining all the homsets for each
+event possible in the system, and the set of enabled clocks for homset. It also stores the functions that
+return a distribution over possible waiting times given a current simulation time.
+"""
 @present SchClockSystem(FreeSchema) begin
     (Clock,Event)::Ob # clock is a single ID, event is an entire class of clocks (e.g. "typed" clocks)
     NameType::AttrType # each event has a name
     RuleType::AttrType # each event has a rewrite rule
     DistType::AttrType # each event has a function that returns a firing time when it's enabled
-    MatchType::AttrType # each event has set of matches associated with it (in theory, this would instead be bijective with Clock)
+    MatchType::AttrType # each event has a homset
     KeyType::AttrType
     event::Hom(Clock,Event)
     key::Attr(Clock,KeyType)
@@ -105,67 +130,44 @@ end
     match::Attr(Event,MatchType)
 end
 
-to_graphviz(SchClockSystem)
+# let's look at it
+# to_graphviz(SchClockSystem)
 
+"""
+    The acset type that stores instances of `SchClockSystem`
+"""
 @acset_type ClockSystem(SchClockSystem, index=[:event], unique_index=[:name,:key])
 
 # --------------------------------------------------------------------------------
-# awful simulator function to avoid julia global weirdness
+# set up and run a SPN model
 
-function run_sirs(S,I,R,maxevent,verbose=false)
-
-    statepn = @acset MarkedLabelledPetriNet{Symbol} begin
-        S=3
-        sname=[:S,:I,:R]
-        T=7
-        tname=[:inf,:rec,:birth,:deathS,:deathI,:deathR,:wane]
-        I=7
-        it=[1,1,2,4,5,6,7]
-        is=[1,2,2,1,2,3,3]
-        O=5
-        ot=[1,1,2,3,7]
-        os=[2,2,3,1,1]
-        M=sum([S,I,R])
-        m=[fill(1,S);fill(2,I);fill(3,R)]
-    end
+"""
+    Given a `spn<:AbstractMarkedLabelledPetriNet` and a dictionary mapping each transition name to
+a function that takes in parameter `t` and returns a distribution object, sample a single trajectory
+of the stochastic dynamics on the petri net until `maxevent` events occur. Print stuff (or not) for debugging
+with `verbose`.
+"""
+function run_spn(spn::T,clockdists,maxevent,verbose=false) where {T<:AbstractMarkedLabelledPetriNet}
 
     # clock system stores the sampling method
     sirclock = @acset ClockSystem{Symbol,Rule,Function,Incremental.IncCCHomSet,Tuple{Int,Int,Int}} begin
-        Event=nt(statepn)
-        name=statepn[:,:tname]
+        Event=nt(spn)
+        name=spn[:,:tname]
     end
 
-    # add rules
+    # add rules, distributions
     for t in parts(sirclock,:Event)
-        sirclock[t,:rule] = make_rule(statepn, t)
+        sirclock[t,:rule] = make_rule(spn, t)
+        sirclock[t,:dist] = clockdists[sirclock[t,:name]]        
+    end
+
+    # make incremental homsets after all rules are made
+    for t in parts(sirclock,:Event)
+        sirclock[t,:match] = IncHomSet(codom(sirclock[t,:rule].L), getfield.(sirclock[:,:rule], :R), statepn, single=true)
     end
 
     # which rules are always enabled?
     always_enabled_t = findall(nparts.(codom.(getfield.(sirclock[:, :rule], :L)), :M) .== 0)
-
-    # add clock distributions
-    pop = nparts(statepn, :M)
-    lifespan = 65*365
-    μ = 1/lifespan
-    β = 0.001
-    wane = 60
-
-    # should somehow check that if this fn returns Exponential, its mapped to type Markov
-    sirclock[only(incident(sirclock, :inf, :name)), :dist] = (t) -> Exponential(1 / β)
-    sirclock[only(incident(sirclock, :birth, :name)), :dist] = (t) -> Exponential(1 / (μ*pop))
-    sirclock[only(incident(sirclock, :deathS, :name)), :dist] = (t) -> Exponential(1 / μ)
-    sirclock[only(incident(sirclock, :deathI, :name)), :dist] = (t) -> Exponential(1 / μ)
-    sirclock[only(incident(sirclock, :deathR, :name)), :dist] = (t) -> Exponential(1 / μ)
-    sirclock[only(incident(sirclock, :wane, :name)), :dist] = (t) -> Exponential(wane)
-
-    α, θ = weibullpar(30, 5)
-    # the non Markovian clock
-    sirclock[only(incident(sirclock, :rec, :name)), :dist] = (t) -> Weibull(α,θ)
-
-    # add incremental homsets
-    for t in parts(sirclock,:Event)
-        sirclock[t,:match] = IncHomSet(codom(sirclock[t,:rule].L), getfield.(sirclock[:,:rule], :R), statepn, single=true)
-    end
 
     # Fleck sampler
     sampler = FirstToFire{Tuple{Int,Int,Int}, Float64}()
@@ -187,8 +189,8 @@ function run_sirs(S,I,R,maxevent,verbose=false)
     end
 
     # record initial state
-    output = Vector{typeof((t=0.0,marking(statepn)...))}()
-    push!(output, (t=0.0,marking(statepn)...))
+    output = Vector{typeof((t=0.0,marking(spn)...))}()
+    push!(output, (t=0.0,marking(spn)...))
 
     # when and what will happen next?
     (tnow, which) = next(sampler, tnow, rng)
@@ -200,8 +202,8 @@ function run_sirs(S,I,R,maxevent,verbose=false)
             sirclock[event, :rule], 
             sirclock[event, :match][Pair(which[2:end]...)]
         )
-        statepn = codom(update_maps[:rh])
-        push!(output, (t=tnow,marking(statepn)...))
+        spn = codom(update_maps[:rh])
+        push!(output, (t=tnow,marking(spn)...))
 
         # "always enabled" transitions need special treatment when they fire
         # because their hom-set won't change, the clocks won't be reset, so we do it manually
@@ -243,9 +245,57 @@ function run_sirs(S,I,R,maxevent,verbose=false)
     return output
 end
 
-# non-markovian SIR with demography
-# sirout = run_sir(95,5,0,1000)
-sirout = run_sirs(95,5,0,1000)
+"""
+    Given counts of `S`, `I`, `R` persons, build a `MarkedLabelledPetriNet`
+that represents the SIRS model with demography.
+"""
+function build_sirs_pn(S,I,R)
+    pn = @acset MarkedLabelledPetriNet{Symbol} begin
+        S=3
+        sname=[:S,:I,:R]
+        T=7
+        tname=[:inf,:rec,:birth,:deathS,:deathI,:deathR,:wane]
+        I=7
+        it=[1,1,2,4,5,6,7]
+        is=[1,2,2,1,2,3,3]
+        O=5
+        ot=[1,1,2,3,7]
+        os=[2,2,3,1,1]
+        M=sum([S,I,R])
+        m=[fill(1,S);fill(2,I);fill(3,R)]
+    end
+    return pn
+end
+
+# --------------------------------------------------------------------------------
+# simulate a few models
+
+# run the SIRS model with demography
+statepn = build_sirs_pn(95,5,0)
+
+# parameters to specify the random waiting times
+pop = nparts(statepn, :M)
+lifespan = 65*365
+μ = 1/lifespan
+β = 0.001
+wane = 60
+
+# functions which take a time point and return a distribution of waiting times
+clockdists = Dict{Symbol,Function}()
+
+# the Exponential clocks (Markov)
+clockdists[:inf] = (t) -> Exponential(1 / β)
+clockdists[:birth] = (t) -> Exponential(1 / (μ*pop))
+clockdists[:deathS] = (t) -> Exponential(1 / μ)
+clockdists[:deathI] = (t) -> Exponential(1 / μ)
+clockdists[:deathR] = (t) -> Exponential(1 / μ)
+clockdists[:wane] = (t) -> Exponential(wane)
+
+# the Weibull clock (non-Markov)
+α, θ = weibullpar(30, 5)
+clockdists[:rec] = (t) -> Weibull(α,θ)
+
+sirout = run_spn(statepn, clockdists, 2000, false)
 
 f = Figure()
 ax = Axis(f[1,1])
@@ -257,7 +307,10 @@ Legend(f[1, 2],
     ["S", "I","R"]
 )
 f
+Makie.save("figures/SIRStrajectory.png", f, px_per_unit=1, size=(800,600))
 
 # can also run a simple birth-death model
-sirout = run_sirs(100,0,0,500)
+statepn = build_sirs_pn(100,0,0)
+sirout = run_spn(statepn, clockdists, 2000, false)
 f = lines(first.(sirout), getindex.(sirout,2))
+Makie.save("figures/BDtrajectory.png", f, px_per_unit=1, size=(800,600))
