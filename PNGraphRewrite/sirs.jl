@@ -138,6 +138,9 @@ end
 """
 @acset_type ClockSystem(SchClockSystem, index=[:event], unique_index=[:name,:key])
 
+# const ClockKeyType = Tuple{Int,Int,Int} # for single connected component homsets
+const ClockKeyType = Tuple{Int,Vector{Pair{Int,Int}}}
+
 # --------------------------------------------------------------------------------
 # set up and run a SPN model
 
@@ -150,9 +153,9 @@ with `verbose`.
 function run_spn(spn::T,clockdists,maxevent,verbose=false) where {T<:AbstractMarkedLabelledPetriNet}
 
     # clock system stores the sampling method
-    sirclock = @acset ClockSystem{Symbol,Rule,Function,Incremental.IncCCHomSet,Tuple{Int,Int,Int}} begin
-        Event=nt(spn)
-        name=spn[:,:tname]
+    sirclock = @acset ClockSystem{Symbol,Rule,Function,Incremental.IncSumHomSet,ClockKeyType} begin
+        Event=nt(statepn)
+        name=statepn[:,:tname]
     end
 
     # add rules, distributions
@@ -163,21 +166,21 @@ function run_spn(spn::T,clockdists,maxevent,verbose=false) where {T<:AbstractMar
 
     # make incremental homsets after all rules are made
     for t in parts(sirclock,:Event)
-        sirclock[t,:match] = IncHomSet(codom(sirclock[t,:rule].L), getfield.(sirclock[:,:rule], :R), statepn, single=true)
+        sirclock[t,:match] = IncHomSet(codom(sirclock[t,:rule].L), getfield.(sirclock[:,:rule], :R), statepn)
     end
 
     # which rules are always enabled?
     always_enabled_t = findall(nparts.(codom.(getfield.(sirclock[:, :rule], :L)), :M) .== 0)
 
     # Fleck sampler
-    sampler = FirstToFire{Tuple{Int,Int,Int}, Float64}()
+    sampler = FirstToFire{ClockKeyType, Float64}()
     rng = Random.RandomDevice()
     tnow = 0.0
 
     for t in parts(sirclock,:Event)
         newkeys = collect(keys(sirclock[t,:match]))
         newkeys = map(newkeys) do k
-            (t,k...)
+            (t, k)
         end
         add_parts!(
             sirclock, :Clock, length(newkeys),
@@ -196,11 +199,11 @@ function run_spn(spn::T,clockdists,maxevent,verbose=false) where {T<:AbstractMar
     (tnow, which) = next(sampler, tnow, rng)
 
     while length(output) < maxevent
-        !verbose || println("event $which fired at $tnow, total number of events: $(length(output))")
+        !verbose || println("event $(first(which)) fired at $tnow, total number of events: $(length(output))")
         event = first(which)
         update_maps = rewrite_match_maps(
             sirclock[event, :rule], 
-            sirclock[event, :match][Pair(which[2:end]...)]
+            sirclock[event, :match][last(which)]
         )
         spn = codom(update_maps[:rh])
         push!(output, (t=tnow,marking(spn)...))
@@ -218,10 +221,10 @@ function run_spn(spn::T,clockdists,maxevent,verbose=false) where {T<:AbstractMar
             del = Incremental.deletion!(sirclock[t,:match], update_maps[:kg])
             add = Incremental.addition!(sirclock[t,:match], event, update_maps[:rh], update_maps[:kh])
             del = map(del) do k
-                (t,k...)
+                (t,k)
             end
             add = map(add) do k
-                (t,k...)
+                (t,k)
             end
             # clocks that are disabled in the new marking (state):
             # 1: disable in the sampler

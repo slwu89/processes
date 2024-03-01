@@ -10,11 +10,11 @@ The specific model I chose for this exercise is a SIRS model with demography. El
 
 ![SIRS model with demography](./figures/SIRS.svg)
 
-Before going on, here is the schema I am using to represent our Petri nets (`SchMarkedLabelledPetriNet`). [Genrich et al. (1983)](https://doi.org/10.1007/BFb0000102) proposed something similar, although expressed in set theory, and instead of 4 sets, only had 2, and a relation for the input and output arcs. The set of tokens and mapping from tokens to places is however, what they proposed.
+Before going on, here is the schema I am using to represent our Petri nets (`SchMarkedLabelledPetriNet`). [Genrich et al. (1983)](https://doi.org/10.1007/BFb0000102) proposed something similar, although expressed in set theory, and instead of 4 sets, only had 2, and a relation for the input and output arcs. The set of tokens and mapping from tokens to places is however, what they proposed. The schemas are used to define ACSets which store instances of these models, using [https://github.com/AlgebraicJulia/Catlab.jl](https://github.com/AlgebraicJulia/Catlab.jl).
 
 ![Schema for Petri net with marking](./figures/MarkedPNSch.svg)
 
-A function `make_rule` makes a DPO rewrite rule for each transition.
+A function `make_rule` makes a DPO rewrite rule for each transition. The rewriting rules are defined using [https://github.com/AlgebraicJulia/AlgebraicRewriting.jl](https://github.com/AlgebraicJulia/AlgebraicRewriting.jl).
 
 Next there is a schema to describe the "clock system". The clock system serves to simulate stochastic dynamics of a system whose enabling rules and state update rules are given by a set of rewriting rules. It should be able to handle any type of random delay distribution, from Dirac delta being the "least Markovian" and Exponential being "most Markovian", if we imagine classifying history dependency by shape of its hazard function; a Dirac is an infinitely high spike and an Exponential will have a flat line. These systems and various algorithms for sampling them are described in [Dolgert (2016)](https://arxiv.org/abs/1610.03939), and we use a package inspired by that work to do the sampling.
 
