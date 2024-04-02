@@ -59,7 +59,7 @@ clockdists[:rec] = (t) -> Weibull(α,θ)
 
 # ------------------------------------------------------------------------------
 # simulate a few models
-sirout = run_spn(statepn, clockdists; save=marking, maxevent=2000)
+sirout = run_spn!(statepn, clockdists; save=marking, maxevent=2000)
 
 X = first.(sirout)
 SIR = [getindex.(last.(sirout), x) for x in [:S, :I, :R]]
@@ -72,14 +72,14 @@ Makie.save("figures/SIRStrajectory.png", f, px_per_unit=1, size=(800,600))
 
 # can also run a simple birth-death model
 statepn = build_sirs_pn(100,0,0)
-BDout = run_spn(statepn, clockdists; save=marking)
+BDout = run_spn!(statepn, clockdists; save=marking)
 f = lines(first.(BDout), getindex.(last.(BDout), :S))
 Makie.save("figures/BDtrajectory.png", f, px_per_unit=1, size=(800,600))
 
 # Do computation on CSet schema with just discrete ob, rather than carrying 
 # around Petri Net schema for every step
 
-sirout = run_spn(sir_pn, clockdists, PetriNetCSet(sir_pn, [100,5,0]); 
+sirout = run_spn!(sir_pn, clockdists, PetriNetCSet(sir_pn, [100,5,0]); 
                  save=(X->nparts.(Ref(X),[:S,:I,:R])), maxevent=2000)
 X = first.(sirout)
 SIR = [getindex.(last.(sirout), x) for x in 1:3]

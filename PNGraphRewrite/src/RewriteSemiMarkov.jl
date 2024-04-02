@@ -46,7 +46,7 @@ a function that takes in parameter `t` and returns a distribution object, sample
 of the stochastic dynamics on the petri net until `maxevent` events occur. Print stuff (or not) for debugging
 with `verbose`.
 """
-function run_spn(clocksys::ClockSystem, state::T; save=deepcopy, 
+function run_spn!(clocksys::ClockSystem, state::T; save=deepcopy, 
                  maxevent=1000, verbose=false) where {T<:ACSet}
   nevent, tnow = 0, 0.0
   sample, RNG = sampl(clocksys), rng(clocksys)
@@ -110,10 +110,10 @@ function run_spn(clocksys::ClockSystem, state::T; save=deepcopy,
   return output
 end
 
-function run_spn(mlpn::T, clockdists; kw...) where {T<:AbstractMarkedLabelledPetriNet}
-  run_spn(to_clocksys(mlpn, clockdists), mlpn; kw...)
+function run_spn!(mlpn::T, clockdists; kw...) where {T<:AbstractMarkedLabelledPetriNet}
+  run_spn!(to_clocksys(mlpn, clockdists), mlpn; kw...)
 end
-function run_spn(mlpn::T, clockdists, init::ACSet; kw...) where {T<:AbstractPetriNet}
-  run_spn(to_clocksys(mlpn, init, clockdists), init; kw...)
+function run_spn!(mlpn::T, clockdists, init::ACSet; kw...) where {T<:AbstractPetriNet}
+  run_spn!(to_clocksys(mlpn, init, clockdists), init; kw...)
 end
 
