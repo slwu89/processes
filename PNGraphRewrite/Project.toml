@@ -1,3 +1,7 @@
+name = "PNGraphRewrite"
+uuid = "a5f6d04b-5b20-4a53-bab2-938d1014c041"
+version = "0.0.1"
+
 [deps]
 AlgebraicPetri = "4f99eebe-17bf-4e98-b6a1-2c4f205a959b"
 AlgebraicRewriting = "725a01d3-f174-5bbd-84e1-b9417bad95d9"
